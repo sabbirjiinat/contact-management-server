@@ -3,11 +3,33 @@ const cors = require("cors");
 const app = express();
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 require("dotenv").config();
+const jwt = require('jsonwebtoken');
 const port = process.env.PORT || 5000;
 
 //middleware
 app.use(express.json());
 app.use(cors());
+
+
+
+const verifyJWT = (req, res, next) => {
+  const authorization = req.headers.authorization;
+  if (!authorization) {
+    return res
+      .status(401)
+      .send({ error: true, message: "Unauthorized access" });
+  }
+  const token = authorization.split(" ")[1];
+  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (error, decode) => {
+    if (error) {
+      return res
+        .status(401)
+        .send({ error: true, message: "Unauthorized access" });
+    }
+    req.decode = decode;
+    next();
+  });
+};
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.9a4nghi.mongodb.net/?retryWrites=true&w=majority`;
 
@@ -23,7 +45,7 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
+    // await client.connect();
 
     const userCollection = client.db("contactManagement").collection("users");
     const contactUserCollection = client
@@ -32,6 +54,14 @@ async function run() {
     const sharedContactCollection = client
       .db("contactManagement")
       .collection("sharedContact");
+
+      app.post("/jwt", (req, res) => {
+        const email = req.body;
+        const token = jwt.sign(email, process.env.ACCESS_TOKEN_SECRET, {
+          expiresIn: "1h",
+        });
+        res.send({ token });
+      });
 
     /* Get all users */
     app.get("/users", async (req, res) => {
@@ -53,14 +83,14 @@ async function run() {
     });
 
     /* Create new contact user  */
-    app.post("/contactUsers", async (req, res) => {
+    app.post("/contactUsers",verifyJWT, async (req, res) => {
       const user = req.body;
       const result = await contactUserCollection.insertOne(user);
       res.send(result);
     });
 
     /* Get all contact */
-    app.get("/contactUsers", async (req, res) => {
+    app.get("/contactUsers",verifyJWT, async (req, res) => {
       const email = req.query.postUserEmail;
       // const search = req.query.search;
       const query = { postUserEmail: email };
@@ -76,7 +106,7 @@ async function run() {
     });
 
     /* Patch single contact */
-    app.patch("/contactUsers/:id", async (req, res) => {
+    app.patch("/contactUsers/:id",verifyJWT, async (req, res) => {
       const id = req.params.id;
       const filter = { _id: new ObjectId(id) };
       const updateUser = req.body;
@@ -93,7 +123,7 @@ async function run() {
     });
 
     /* Delete single contact */
-    app.delete("/contactUsers/:id", async (req, res) => {
+    app.delete("/contactUsers/:id",verifyJWT, async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await contactUserCollection.deleteOne(query);
@@ -101,7 +131,7 @@ async function run() {
     });
 
     /* Get shared contact for logged in user */
-    app.get('/sharedContact',async(req,res)=>{
+    app.get('/sharedContact',verifyJWT,async(req,res)=>{
       const email = req.query.sendTo;
       const query = {sendTo:email};
       const result = await sharedContactCollection.find(query).toArray();
@@ -109,9 +139,26 @@ async function run() {
     })
 
     /* Post Shared Contact */
-    app.post("/sharedContact", async (req, res) => {
+    app.post("/sharedContact",verifyJWT, async (req, res) => {
       const contact = req.body;
       const result = await sharedContactCollection.insertOne(contact);
+      res.send(result);
+    });
+
+    /* Update shared contact */
+    app.patch("/sharedContact/:id",verifyJWT, async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const updateUser = req.body;
+      const updateDoc = {
+        $set: {
+          name: updateUser.name,
+          email: updateUser.email,
+          number: updateUser.number,
+          image_url: updateUser.image_url,
+        },
+      };
+      const result = await sharedContactCollection.updateOne(filter, updateDoc);
       res.send(result);
     });
     // Send a ping to confirm a successful connection
